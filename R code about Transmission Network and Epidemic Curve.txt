@@ -1,0 +1,147 @@
+# 필요한 패키지 로드
+library(readxl)
+library(dplyr)
+library(igraph)
+library(ggplotify)
+library(ggplot2)
+
+
+# Transmission Network 
+
+
+# 데이터 불러오기
+case_data <- read_excel("C:/Users/Pertussis_data.xlsx")
+
+# 데이터 전처리
+case_data <- case_data %>%
+  filter(`SOI` != 0) %>%
+  dplyr::select(Key,SOI, `최종접종차수`)
+
+
+# 감염자와 피감염자 연결
+graph <- graph_from_data_frame(case_data %>%
+                                       dplyr::select(SOI, Key) %>%
+                                       dplyr::rename(from = SOI, to = Key), directed = TRUE)
+
+graph
+
+
+# 난수 시드 설정
+set.seed(123)  
+
+
+# 노드 속성 설정
+V(graph)$size <- 4  # 노드 크기
+
+V(graph)$color <- ifelse(V(graph)$name %in% case_data$Key[case_data$`최종접종차수` == 4], 
+                               "seagreen", 
+                               ifelse(V(graph)$name %in% case_data$Key[case_data$`최종접종차수` == 5], 
+                                      "royalblue", 
+                                      "black")) # 노드 색상
+# 엣지 속성 설정
+E(graph)$arrow.size <- 0.4
+E(graph)$width <- 0.5
+E(graph)$color <- "grey40"
+
+
+
+# ggplot2로 전환
+network_plot <- ggplotify::as.ggplot(function() {
+  plot.igraph(graph,
+              vertex.shape = "circle",
+              main = "",  # 제목 제거
+              vertex.label = NA)  # 노드 레이블 제거
+})
+
+
+# 범례 추가
+legend_data <- data.frame(
+  dose = c("4th doses", "5th doses", "6th doses"),
+  color = c("gray30" , "royalblue","seagreen" )
+)
+
+# 범례 순서 설정
+legend_order <- c("6th doses", "5th doses", "4th doses")
+
+network_plot <- network_plot + 
+  scale_color_manual(values = legend_data$color, 
+                     breaks = legend_order) +  # 범례 순서 지정
+  guides(color = guide_legend(title = NULL)) +  # 범례 제목 제거
+  geom_point(data = legend_data, aes(x = 1, y = 1, color = dose), size = 5) +
+  theme(legend.position= c(0.2, 0.5),  # 범례를 그래프 내부에 위치 설정 (x, y 좌표)
+        legend.title = element_text(size = 10), 
+        legend.text = element_text(size = 10))
+
+
+# 최종 그래프 출력
+print(network_plot)
+
+
+############################################
+
+#Epidemic Curve
+
+# 필요한 패키지 로드
+library(lubridate)
+library(dplyr)
+
+# 데이터 불러오기
+case_data <- read_excel("C:/Users/cmc/Desktop/lab/Pertussis/부산/data/48명.xlsx")
+
+# 데이터 전처리
+case_data <- case_data %>%
+  mutate(onset.date = coalesce(ymd(onset.date), ymd(기관진단일))) #증상발현일이 없는 경우 기관진단일로 대체
+
+
+# 발생 건수 계산
+epidemic_data <- case_data %>%
+  group_by(onset.date, Key, `최종접종차수`) %>%  
+  summarise(count = n(), 
+            .groups = 'drop') %>%
+  arrange(onset.date) %>%
+  mutate(fill_color = case_when(
+    `최종접종차수` == 4 ~ "seagreen",
+    `최종접종차수` == 5 ~ "steelblue",
+    `최종접종차수` == 6 ~ "grey30"
+  ))
+
+
+
+# onset.date의 최소값과 최대값(x축)
+min_date <- min(case_data$onset.date, na.rm = TRUE)
+max_date <- max(case_data$onset.date, na.rm = TRUE)
+
+
+# Epidemic curve
+epidemic_plot <- ggplot(epidemic_data, aes(x = onset.date, y = count, fill = fill_color)) +
+  geom_bar(stat = "identity", position = "stack") + # 누적막대그래프
+  labs(x = "Date of symptoms onset", y = "Number of cases, n") +
+  scale_x_date(
+    limits = c(min_date - 1, max_date + 1),  
+    labels = scales::date_format("%b/%d"),  
+    breaks = seq(from = min_date, to = max_date, by = 7)  
+  ) +
+  scale_y_continuous(limits = c(0, 7), breaks = seq(0, 7, by = 1), expand = expansion(c(0, 0))) +  # y축 범위 설정
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), # 그리드 선 제거
+        panel.grid.minor = element_blank(),
+        axis.ticks = element_line(),
+        plot.margin = margin(t = 50, r = 10, b = 10, l = 10),  # 상단 여백 조정
+        axis.line = element_line(linewidth = 0.7),  # 축의 두께 조절
+        axis.text.x = element_text(color = "black", size = 14),
+        axis.text.y = element_text(color = "black", size = 16),  # 축 텍스트 크기 조절
+        legend.title = element_blank(),
+        legend.text = element_text(size = 15),  
+        legend.position = c(0.8, 0.7)  # 범례 위치
+  ) +
+  scale_fill_manual(
+    values = c("grey30", "steelblue", "seagreen"),
+    labels = c("6th doses", "5th doses", "4th doses"),
+    breaks = c("grey30", "steelblue", "seagreen") # 범례 순서
+  )
+
+
+# 최종 그래프 출력
+print(epidemic_plot)
+
+
